@@ -24,7 +24,7 @@ SAMPLES_DIR = "sample_images"
 
 RESNET_PATH = os.path.join(MODELS_DIR, "resnet50_baseline.h5")
 # CONVNEXT_PATH = os.path.join(MODELS_DIR, "convnext_baseline.h5")
-CONVNEXT_PATH = os.path.join(MODELS_DIR, "convnext_model_colab.keras")
+CONVNEXT_PATH = os.path.join(MODELS_DIR, "convnext_colab.keras")
 CLASSES_PATH = os.path.join(MODELS_DIR, "classes.npy")
 
 DIST_CSV = os.path.join(ASSETS_DIR, "class_distribution.csv")        # class,count
