@@ -12,6 +12,9 @@ import pandas as pd
 import streamlit as st
 import tensorflow as tf
 import altair as alt
+import zipfile
+from pathlib import Path
+
 
 st.set_page_config(page_title="Dogs — Dashboard", layout="wide", initial_sidebar_state="expanded")
 
@@ -21,7 +24,7 @@ SAMPLES_DIR = "sample_images"
 
 RESNET_PATH = os.path.join(MODELS_DIR, "resnet50_baseline.h5")
 # CONVNEXT_PATH = os.path.join(MODELS_DIR, "convnext_baseline.h5")
-CONVNEXT_PATH = os.path.join(MODELS_DIR, "convnext_model")
+CONVNEXT_PATH = os.path.join(MODELS_DIR, "convnext_model_colab.keras")
 CLASSES_PATH = os.path.join(MODELS_DIR, "classes.npy")
 
 DIST_CSV = os.path.join(ASSETS_DIR, "class_distribution.csv")        # class,count
@@ -287,6 +290,34 @@ def load_classes(classes_path: str) -> np.ndarray:
             "Sauvegarde: np.save('models/classes.npy', encoder.classes_)"
         )
     return np.load(classes_path, allow_pickle=True)
+
+@st.cache_resource(show_spinner=False)
+def ensure_unzipped(zip_path: str, out_dir: str, expected_file: str | None = None) -> str:
+    """
+    Dézippe zip_path dans out_dir seulement si nécessaire.
+    - expected_file: chemin relatif (dans out_dir) du fichier attendu après extraction,
+      ex: "convnext_model_colab.keras"
+    Retourne le chemin du fichier attendu (ou out_dir si expected_file est None).
+    """
+    zip_p = Path(zip_path)
+    out_p = Path(out_dir)
+    out_p.mkdir(parents=True, exist_ok=True)
+
+    expected_p = (out_p / expected_file) if expected_file else None
+
+    # Déjà extrait ?
+    if expected_p and expected_p.exists():
+        return str(expected_p)
+
+    # Zip absent -> on laisse la suite gérer le FileNotFoundError
+    if not zip_p.exists():
+        return str(expected_p) if expected_p else str(out_p)
+
+    # Extraction
+    with zipfile.ZipFile(zip_p, "r") as z:
+        z.extractall(out_p)
+
+    return str(expected_p) if expected_p else str(out_p)
 
 @st.cache_resource(show_spinner=False)
 def load_model_safe(model_path: str) -> tf.keras.Model:
