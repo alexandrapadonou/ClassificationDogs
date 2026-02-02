@@ -24,8 +24,7 @@ SAMPLES_DIR = "sample_images"
 
 RESNET_PATH = os.path.join(MODELS_DIR, "resnet50_baseline.h5")
 # CONVNEXT_PATH = os.path.join(MODELS_DIR, "convnext_baseline.h5")
-CONVNEXT_ZIP = os.path.join(MODELS_DIR, "convnext_colab.zip")
-CONVNEXT_PATH = os.path.join(MODELS_DIR, "convnext_colab.keras")
+CONVNEXT_PATH = os.path.join(MODELS_DIR, "convnext_model_colab.keras")
 CLASSES_PATH = os.path.join(MODELS_DIR, "classes.npy")
 
 DIST_CSV = os.path.join(ASSETS_DIR, "class_distribution.csv")        # class,count
@@ -583,13 +582,6 @@ else:
         resnet_model = load_model_safe(RESNET_PATH)
     except Exception as e:
         resnet_err = str(e)
-
-    # Assure que le modèle convnext est extrait
-    CONVNEXT_PATH = ensure_unzipped(
-        zip_path=CONVNEXT_ZIP,
-        out_dir=MODELS_DIR,
-        expected_file="convnext_model_colab.keras",
-    )
 
     try:
         convnext_model = load_model_safe(CONVNEXT_PATH)
