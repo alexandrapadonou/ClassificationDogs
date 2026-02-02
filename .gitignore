@@ -12,3 +12,5 @@ __pycache__/
 models/convnext_baseline.h5
 models/convnext_baseline.keras
 models/convnext_model.keras
+models/convnext_model_colab.keras
+models/convnext_model_colab.zip
