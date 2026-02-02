@@ -1,0 +1,14 @@
+# Environnements virtuels
+venv/
+.venv/
+env/
+
+# Python
+__pycache__/
+*.pyc
+
+
+# models ia
+models/convnext_baseline.h5
+models/convnext_baseline.keras
+models/convnext_model.keras

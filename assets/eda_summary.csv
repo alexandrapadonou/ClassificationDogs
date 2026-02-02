@@ -1,0 +1,6 @@
+metric,value
+n_classes,5
+n_images_total,952
+dominant_class,n02085936-Maltese_dog
+dominant_class_count,252
+img_size_model,299x299
