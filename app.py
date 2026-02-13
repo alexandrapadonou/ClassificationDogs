@@ -1,8 +1,11 @@
 # app.py
-# Fixes:
-# - Metrics (loss/accuracy) not “hidden”: make the metrics panel shorter + stack 2 compact horizontal charts (Accuracy then Loss)
-# - Show best model KPIs (ACC + LOSS) clearly at top of metrics panel
-# - Class distribution axis: force integer formatting (no 3e2 / scientific) + linear scale + explicit domain up to max (~300)
+# =============================================================================
+# DASHBOARD DE CLASSIFICATION DE RACES DE CHIENS
+# =============================================================================
+# Cette application Streamlit permet de :
+# 1. Visualiser les données (distribution des classes, performances des modèles)
+# 2. Tester des modèles de deep learning (ResNet50, ConvNeXt) sur des photos de chiens
+# =============================================================================
 
 import os
 import time
@@ -16,30 +19,40 @@ import zipfile
 from pathlib import Path
 
 
+# --- Configuration de la page Streamlit ---
+# layout="wide" = toute la largeur ; sidebar ouverte par défaut
 st.set_page_config(page_title="Dogs — Dashboard", layout="wide", initial_sidebar_state="expanded")
 
+# --- Chemins des dossiers et fichiers ---
+# MODELS_DIR : où sont stockés les modèles entraînés (.h5 ou .keras)
+# ASSETS_DIR : graphiques et CSV pré-calculés (distribution, scores, matrices de confusion)
+# SAMPLES_DIR : images d'exemple pour tester la prédiction
 MODELS_DIR = "models"
 ASSETS_DIR = "assets"
 SAMPLES_DIR = "sample_images"
 
+# Chemins des modèles : ResNet50 et ConvNeXt (deux architectures de réseaux de neurones)
 RESNET_PATH = os.path.join(MODELS_DIR, "resnet50_baseline.h5")
-# CONVNEXT_PATH = os.path.join(MODELS_DIR, "convnext_baseline.h5")
 CONVNEXT_PATH = os.path.join(MODELS_DIR, "convnext_colab.keras")
-CLASSES_PATH = os.path.join(MODELS_DIR, "classes.npy")
+CLASSES_PATH = os.path.join(MODELS_DIR, "classes.npy")  # liste des noms de races (étiquettes)
 
-DIST_CSV = os.path.join(ASSETS_DIR, "class_distribution.csv")        # class,count
-MODEL_SCORES_CSV = os.path.join(ASSETS_DIR, "model_scores.csv")      # model,accuracy,loss
+# Fichiers CSV des assets : distribution des classes, scores des modèles
+DIST_CSV = os.path.join(ASSETS_DIR, "class_distribution.csv")        # colonnes : class, count
+MODEL_SCORES_CSV = os.path.join(ASSETS_DIR, "model_scores.csv")       # colonnes : model, accuracy, loss
 
+# Matrices de confusion : images PNG ou CSV (pour comparer prédictions vs vérité)
 CM_PNG_RESNET = os.path.join(ASSETS_DIR, "confusion_matrix_resnet50.png")
 CM_PNG_CONVNEXT = os.path.join(ASSETS_DIR, "confusion_matrix_convnext.png")
 CM_CSV_RESNET = os.path.join(ASSETS_DIR, "confusion_matrix_resnet50.csv")
 CM_CSV_CONVNEXT = os.path.join(ASSETS_DIR, "confusion_matrix_convnext.csv")
 
+# Taille d'entrée des images pour les modèles (hauteur x largeur en pixels)
 IMG_SIZE = (299, 299)
 
 # -----------------------------
-# CSS
+# STYLES CSS (apparence du dashboard)
 # -----------------------------
+# On injecte du CSS pour : cartes KPI, panneaux, badges, sidebar sombre
 st.markdown(
     """
 <style>
@@ -94,12 +107,16 @@ section[data-testid="stSidebar"] > div {
 )
 
 # -----------------------------
-# Helpers
+# FONCTIONS UTILITAIRES (helpers)
 # -----------------------------
+
 def safe_exists(path: str) -> bool:
+    """Vérifie si un fichier/dossier existe sans planter si path est None."""
     return path is not None and os.path.exists(path)
 
+
 def kpi(col, title, value, sub=""):
+    """Affiche une petite carte KPI (indicateur) : titre, valeur principale, sous-texte. col = colonne Streamlit."""
     col.markdown(
         f"""
 <div class="kpi">
@@ -111,7 +128,9 @@ def kpi(col, title, value, sub=""):
         unsafe_allow_html=True,
     )
 
+
 def load_csv_safe(path: str) -> pd.DataFrame | None:
+    """Charge un CSV en DataFrame pandas. Retourne None si le fichier n'existe pas ou en cas d'erreur."""
     if not safe_exists(path):
         return None
     try:
@@ -119,7 +138,9 @@ def load_csv_safe(path: str) -> pd.DataFrame | None:
     except Exception:
         return None
 
+
 def prettify_model_name(x: str) -> str:
+    """Transforme un nom de modèle (ex: convnext_colab.keras) en nom lisible (ex: ConvNeXt)."""
     s = str(x).strip()
     low = s.lower()
     if "convnext" in low:
@@ -128,7 +149,13 @@ def prettify_model_name(x: str) -> str:
         return "ResNet50"
     return s
 
+
 def choose_best_model(scores_df: pd.DataFrame | None) -> str | None:
+    """
+    Détermine le meilleur modèle à partir du CSV des scores.
+    Critère : accuracy la plus haute ; en cas d'égalité, loss la plus basse.
+    Retourne le nom du modèle (ex: "ConvNeXt") ou None.
+    """
     if scores_df is None or scores_df.empty:
         return None
     df = scores_df.copy()
@@ -143,11 +170,16 @@ def choose_best_model(scores_df: pd.DataFrame | None) -> str | None:
     if df["accuracy"].isna().all() and df["loss"].isna().all():
         return None
 
-    # Best = max accuracy, tie-breaker min loss
+    # Meilleur = accuracy max, puis en cas d'égalité loss min
     df = df.sort_values(["accuracy", "loss"], ascending=[False, True], na_position="last")
     return str(df.iloc[0]["model"])
 
 def load_confusion_matrix(best_model: str | None) -> tuple[str, pd.DataFrame | None]:
+    """
+    Charge la matrice de confusion du meilleur modèle.
+    Retourne : (mode, df) avec mode = "png_resnet" / "png_convnext" / "csv" / "none".
+    Si mode = "csv", df contient les données ; sinon on affiche une image PNG.
+    """
     if best_model is None:
         return "none", None
 
@@ -171,13 +203,19 @@ def load_confusion_matrix(best_model: str | None) -> tuple[str, pd.DataFrame | N
     return "none", None
 
 def plot_confusion_heatmap(cm_df: pd.DataFrame):
+    """
+    Affiche une heatmap (carte de chaleur) de la matrice de confusion à partir d'un DataFrame.
+    Axes : vraie classe vs classe prédite ; couleur = nombre d'exemples.
+    """
     df = cm_df.copy()
+    # Première colonne = étiquettes de lignes (vraie classe)
     if df.shape[1] >= 2:
         first = df.columns[0]
         if not pd.api.types.is_numeric_dtype(df[first]):
             df = df.set_index(first)
 
     num = df.apply(pd.to_numeric, errors="coerce").fillna(0.0)
+    # "Faire fondre" le tableau pour qu'Altair puisse tracer : une ligne par (vrai, prédit, count)
     melted = num.reset_index().melt(id_vars=[num.reset_index().columns[0]], var_name="Pred", value_name="Count")
     melted = melted.rename(columns={num.reset_index().columns[0]: "True"})
     melted["Count"] = pd.to_numeric(melted["Count"], errors="coerce").fillna(0)
@@ -206,6 +244,10 @@ def plot_confusion_heatmap(cm_df: pd.DataFrame):
     st.altair_chart(heat + text, use_container_width=True)
 
 def load_image_from_upload(uploaded_file) -> np.ndarray:
+    """
+    Lit un fichier image uploadé par l'utilisateur et le convertit en tableau numpy RGB.
+    OpenCV lit en BGR ; on convertit en RGB pour cohérence avec les modèles.
+    """
     file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
     bgr = cv.imdecode(file_bytes, cv.IMREAD_COLOR)
     if bgr is None:
@@ -213,6 +255,13 @@ def load_image_from_upload(uploaded_file) -> np.ndarray:
     return cv.cvtColor(bgr, cv.COLOR_BGR2RGB)
 
 def preprocess_like_notebook(img_rgb: np.ndarray, target_size=(299, 299)) -> np.ndarray:
+    """
+    Prétraitement de l'image comme dans le notebook d'entraînement :
+    1. Redimensionnement à target_size (ex: 299x299)
+    2. Égalisation d'histogramme (canal Y en YUV) pour mieux contraster
+    3. Débruitage (denoising) pour limiter le bruit
+    Retourne l'image en float32 prête pour le modèle.
+    """
     img = cv.resize(img_rgb, target_size, interpolation=cv.INTER_LINEAR)
     img_yuv = cv.cvtColor(img, cv.COLOR_RGB2YUV)
     img_yuv[:, :, 0] = cv.equalizeHist(img_yuv[:, :, 0])
@@ -227,17 +276,28 @@ def preprocess_like_notebook(img_rgb: np.ndarray, target_size=(299, 299)) -> np.
     )
     return dst_img.astype(np.float32)
 
+
 def normalize_probs(probs: np.ndarray) -> np.ndarray:
+    """
+    Normalise un vecteur de probabilités pour que la somme fasse 1.
+    Si la somme est 0 ou négative, renvoie des probabilités uniformes (évite division par zéro).
+    """
     probs = np.asarray(probs, dtype=np.float32)
     s = float(probs.sum())
     if s <= 0:
         return np.ones_like(probs) / max(1, probs.size)
     return probs / s
 
+
 # -----------------------------
-# Custom layers (ConvNeXt)
+# COUCHES PERSONNALISÉES (pour ConvNeXt)
 # -----------------------------
+# ConvNeXt utilise des couches qui ne sont pas dans Keras par défaut ;
+# on les redéfinit ici pour pouvoir charger le modèle sauvegardé.
+
 class LayerScale(tf.keras.layers.Layer):
+    """Couche qui multiplie l'entrée par un vecteur gamma (appris). Utilisée dans ConvNeXt pour stabiliser l'entraînement."""
+
     def __init__(self, init_values=1e-6, projection_dim=None, **kwargs):
         super().__init__(**kwargs)
         self.init_values = init_values
@@ -262,6 +322,12 @@ class LayerScale(tf.keras.layers.Layer):
         return cfg
 
 class StochasticDepth(tf.keras.layers.Layer):
+    """
+    "Stochastic Depth" : pendant l'entraînement, on "coupe" aléatoirement certaines branches
+    (met la sortie à 0 avec une probabilité drop_path_rate). Ça régularise et évite le surapprentissage.
+    En inférence (training=False), la couche ne fait rien (sortie = entrée).
+    """
+
     def __init__(self, drop_path_rate=0.0, **kwargs):
         super().__init__(**kwargs)
         self.drop_path_rate = float(drop_path_rate)
@@ -280,10 +346,16 @@ class StochasticDepth(tf.keras.layers.Layer):
         cfg.update({"drop_path_rate": self.drop_path_rate})
         return cfg
 
+# Dictionnaire passé à load_model pour que Keras reconnaisse nos couches personnalisées
 CUSTOM_OBJECTS = {"LayerScale": LayerScale, "StochasticDepth": StochasticDepth}
+
 
 @st.cache_resource(show_spinner=False)
 def load_classes(classes_path: str) -> np.ndarray:
+    """
+    Charge la liste des noms de classes (races de chiens) depuis un fichier .npy.
+    @st.cache_resource : ne charge qu'une fois, puis réutilise en mémoire (évite de relire le fichier).
+    """
     if not safe_exists(classes_path):
         raise FileNotFoundError(
             f"classes.npy introuvable: {classes_path} — "
@@ -291,13 +363,13 @@ def load_classes(classes_path: str) -> np.ndarray:
         )
     return np.load(classes_path, allow_pickle=True)
 
+
 @st.cache_resource(show_spinner=False)
 def ensure_unzipped(zip_path: str, out_dir: str, expected_file: str | None = None) -> str:
     """
-    Dézippe zip_path dans out_dir seulement si nécessaire.
-    - expected_file: chemin relatif (dans out_dir) du fichier attendu après extraction,
-      ex: "convnext_model_colab.keras"
-    Retourne le chemin du fichier attendu (ou out_dir si expected_file est None).
+    Décompresse zip_path dans out_dir seulement si nécessaire.
+    expected_file = nom du fichier attendu après extraction (ex: "convnext_model_colab.keras").
+    Retourne le chemin complet du fichier attendu (ou out_dir si expected_file est None).
     """
     zip_p = Path(zip_path)
     out_p = Path(out_dir)
@@ -305,22 +377,27 @@ def ensure_unzipped(zip_path: str, out_dir: str, expected_file: str | None = Non
 
     expected_p = (out_p / expected_file) if expected_file else None
 
-    # Déjà extrait ?
+    # Si le fichier attendu existe déjà, pas besoin de dézipper
     if expected_p and expected_p.exists():
         return str(expected_p)
 
-    # Zip absent -> on laisse la suite gérer le FileNotFoundError
+    # Si le zip n'existe pas, on retourne le chemin attendu (une erreur viendra plus tard si besoin)
     if not zip_p.exists():
         return str(expected_p) if expected_p else str(out_p)
 
-    # Extraction
+    # Extraction du zip
     with zipfile.ZipFile(zip_p, "r") as z:
         z.extractall(out_p)
 
     return str(expected_p) if expected_p else str(out_p)
 
+
 @st.cache_resource(show_spinner=False)
 def load_model_safe(model_path: str) -> tf.keras.Model:
+    """
+    Charge un modèle Keras depuis le disque. Si le chargement standard échoue (ex: modèle ConvNeXt
+    avec couches personnalisées), on réessaie avec custom_objects (LayerScale, StochasticDepth).
+    """
     if not safe_exists(model_path):
         raise FileNotFoundError(f"Modèle introuvable: {model_path}")
     try:
@@ -328,9 +405,10 @@ def load_model_safe(model_path: str) -> tf.keras.Model:
     except Exception:
         return tf.keras.models.load_model(model_path, compile=False, custom_objects=CUSTOM_OBJECTS)
 
-# -----------------------------
-# Header
-# -----------------------------
+
+# =============================================================================
+# EN-TÊTE DE LA PAGE
+# =============================================================================
 left, right = st.columns([0.74, 0.26])
 with left:
     st.markdown("## Dashboard de classification de races de chiens")
@@ -339,13 +417,14 @@ with right:
     st.markdown("")
 
 # -----------------------------
-# Sidebar
+# BARRE LATÉRALE (sidebar) — Navigation
 # -----------------------------
 st.sidebar.markdown("### Navigation")
+# section permet de basculer entre la vue "Overview" (statistiques) et "Predict" (prédiction sur image)
 section = st.sidebar.radio("Section", ["Overview", "Predict"], index=0)
 
 # -----------------------------
-# Load classes
+# Chargement des classes (noms des races)
 # -----------------------------
 classes = None
 try:
@@ -354,15 +433,17 @@ except Exception as e:
     st.error(str(e))
 
 # -----------------------------
-# OVERVIEW
+# SECTION OVERVIEW — Tableau de bord (statistiques et graphiques)
 # -----------------------------
 if section == "Overview":
     if classes is None:
         st.stop()
 
+    # Chargement des données : distribution des classes (nombre d'images par race)
     dist_df = load_csv_safe(DIST_CSV)
     if dist_df is not None:
         dist_df.columns = [c.strip().lower() for c in dist_df.columns]
+        # Accepter des noms de colonnes alternatifs (classe, label, breed / n, images, etc.)
         if "class" not in dist_df.columns:
             for altc in ["classe", "label", "breed"]:
                 if altc in dist_df.columns:
@@ -376,6 +457,7 @@ if section == "Overview":
         if not set(["class", "count"]).issubset(dist_df.columns):
             dist_df = None
 
+    # Chargement des scores des modèles (accuracy, loss par modèle)
     scores_df = load_csv_safe(MODEL_SCORES_CSV)
     if scores_df is not None:
         scores_df.columns = [c.strip().lower() for c in scores_df.columns]
@@ -388,7 +470,7 @@ if section == "Overview":
     best_model = choose_best_model(scores_df)
     cm_mode, cm_df = load_confusion_matrix(best_model)
 
-    # KPIs
+    # --- Bloc des 4 indicateurs KPI en haut de page ---
     k1, k2, k3, k4 = st.columns(4)
     n_classes = len(classes)
 
@@ -399,6 +481,7 @@ if section == "Overview":
         dtmp["count"] = pd.to_numeric(dtmp["count"], errors="coerce").fillna(0).astype(int)
         total_imgs = int(dtmp["count"].sum())
         if total_imgs > 0:
+            # Classe qui a le plus d'images
             top = dtmp.sort_values("count", ascending=False).iloc[0]
             dominant_class = str(top["class"])
 
@@ -429,10 +512,10 @@ if section == "Overview":
 
     st.markdown("<hr/>", unsafe_allow_html=True)
 
-    # Layout: 36% / 29% / 35%
+    # Disposition en 3 colonnes : distribution | métriques (loss/accuracy) | matrice de confusion
     c1, c2, c3 = st.columns([0.36, 0.29, 0.35])
 
-    # Distribution (vertical) — NO scientific notation + explicit domain
+    # --- Colonne 1 : graphique en barres de la distribution des classes ---
     with c1:
         st.markdown('<div class="panel">', unsafe_allow_html=True)
         st.markdown("### Distribution des classes")
@@ -446,9 +529,9 @@ if section == "Overview":
             d = d.sort_values("count", ascending=False)
 
             max_count = int(d["count"].max()) if len(d) else 0
-            ymax = int(np.ceil(max(1, max_count) * 1.05))  # ~300 -> 315
+            ymax = int(np.ceil(max(1, max_count) * 1.05))  # Domaine Y explicite pour éviter notation scientifique (ex: 3e2)
 
-            sel = alt.selection_point(fields=["class"], empty="none")
+            sel = alt.selection_point(fields=["class"], empty="none")  # Sélection au clic pour surligner une barre
             chart = (
                 alt.Chart(d)
                 .mark_bar()
@@ -473,7 +556,7 @@ if section == "Overview":
 
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # Metrics (horizontal) — compact + clearly visible (no overlap feeling)
+    # --- Colonne 2 : métriques Loss & Accuracy (meilleur modèle + 2 petits graphiques en barres) ---
     with c2:
         st.markdown('<div class="panel">', unsafe_allow_html=True)
         badge = f'<span class="badge">Best: {best_model}</span>' if best_model else '<span class="badge badge-warn">Missing</span>'
@@ -489,7 +572,7 @@ if section == "Overview":
             df["loss"] = pd.to_numeric(df.get("loss"), errors="coerce")
             df = df.dropna(subset=["accuracy", "loss"], how="all")
 
-            # Best KPIs inside this panel (so they're always visible)
+            # Afficher les KPIs du meilleur modèle en haut du panneau (toujours visibles)
             if best_model is not None:
                 row = df[df["model"].str.lower() == best_model.lower()]
                 if not row.empty:
@@ -499,8 +582,7 @@ if section == "Overview":
                     m1.metric("Accuracy (best)", f"{float(acc_v):.3f}" if acc_v is not None and not pd.isna(acc_v) else "—")
                     m2.metric("Loss (best)", f"{float(loss_v):.3f}" if loss_v is not None and not pd.isna(loss_v) else "—")
 
-            # Two compact horizontal charts (thin bars), stacked (no facet overflow)
-            # Accuracy chart
+            # Deux graphiques horizontaux compacts : Accuracy puis Loss (barres fines, empilés)
             acc_df = df.dropna(subset=["accuracy"]).sort_values("accuracy", ascending=False)
             if not acc_df.empty:
                 acc_chart = (
@@ -515,7 +597,7 @@ if section == "Overview":
                 )
                 st.altair_chart(acc_chart, use_container_width=True)
 
-            # Loss chart (domain auto)
+            # Graphique Loss (plus la loss est basse, mieux c'est)
             loss_df = df.dropna(subset=["loss"]).sort_values("loss", ascending=True)
             if not loss_df.empty:
                 loss_chart = (
@@ -556,8 +638,9 @@ if section == "Overview":
 
         st.markdown("</div>", unsafe_allow_html=True)
 
+
 # -----------------------------
-# PREDICT (inchangé)
+# SECTION PREDICT — Prédiction sur une image (upload ou exemple)
 # -----------------------------
 else:
     if classes is None:
@@ -590,6 +673,7 @@ else:
 
     a1, a2, a3, a4 = st.columns(4)
     def pill(ok: bool) -> str:
+        """Affiche OK ou KO selon que le chargement a réussi ou non."""
         return "✅ OK" if ok else "❌ KO"
 
     kpi(a1, "ResNet50", pill(resnet_model is not None), "Chargement modèle")
@@ -609,8 +693,14 @@ else:
     L, R = st.columns([0.44, 0.56])
 
     def predict_with(model: tf.keras.Model, model_name: str, img_rgb_in: np.ndarray, top_k: int):
+        """
+        Lance une prédiction avec le modèle donné sur l'image RGB.
+        - Prétraitement de l'image (taille, préprocessing ResNet si besoin)
+        - predict() retourne des probabilités par classe
+        - On retourne : DataFrame top-K, temps d'inférence (ms), classe top-1, proba top-1
+        """
         img_proc = preprocess_like_notebook(img_rgb_in, IMG_SIZE)
-        x = np.expand_dims(img_proc, axis=0)
+        x = np.expand_dims(img_proc, axis=0)  # Ajouter une dimension "batch" (1, H, W, 3)
         if "resnet" in model_name.lower():
             x = tf.keras.applications.resnet.preprocess_input(x)
 
@@ -619,7 +709,7 @@ else:
         dt = (time.time() - t0) * 1000.0
 
         probs = normalize_probs(probs)
-        idx = np.argsort(probs)[::-1][:top_k]
+        idx = np.argsort(probs)[::-1][:top_k]  # Indices des top_k plus grandes probas
         df = pd.DataFrame([{"Classe": str(classes[i]), "Probabilité": float(probs[i])} for i in idx])
         return df, dt, str(classes[int(idx[0])]), float(probs[int(idx[0])])
 
@@ -627,6 +717,7 @@ else:
         st.markdown('<div class="panel">', unsafe_allow_html=True)
         st.markdown("### Image d’entrée")
 
+        # Choix : upload d'un fichier ou sélection d'une image d'exemple
         mode = st.radio("Source", ["Upload", "Exemple"], horizontal=True)
         img_rgb = None
 
@@ -638,6 +729,7 @@ else:
                 except Exception as e:
                     st.error(f"Erreur image: {e}")
         else:
+            # Mode "Exemple" : on liste les images dans sample_images/
             if os.path.isdir(SAMPLES_DIR):
                 imgs = [f for f in os.listdir(SAMPLES_DIR) if f.lower().endswith((".png", ".jpg", ".jpeg"))]
                 imgs.sort()
@@ -661,8 +753,8 @@ else:
 
         st.markdown('<div class="panel" style="margin-top:12px;">', unsafe_allow_html=True)
         st.markdown("### Paramètres")
-        top_k = st.slider("Top-K", 1, 5, 3, 1)
-        compare = st.checkbox("Comparer ResNet50 vs ConvNeXt", value=True)
+        top_k = st.slider("Top-K", 1, 5, 3, 1)  # Nombre de classes à afficher (ex: top 3 races)
+        compare = st.checkbox("Comparer ResNet50 vs ConvNeXt", value=True)  # Afficher les deux modèles côte à côte
         st.markdown("</div>", unsafe_allow_html=True)
 
     with R:
@@ -679,6 +771,7 @@ else:
             if not can_run_resnet and not can_run_convnext:
                 st.error("Aucun modèle disponible pour prédire.")
             else:
+                # Mode "Comparer" : lancer les deux modèles et afficher le gagnant
                 if compare:
                     if st.button("▶ Lancer", type="primary", use_container_width=True):
                         cA, cB = st.columns(2)
@@ -726,15 +819,8 @@ else:
                                 st.warning("ConvNeXt indisponible (LayerScale)")
 
                         st.markdown("<hr/>", unsafe_allow_html=True)
-                        if can_run_resnet and can_run_convnext:
-                            winner = "ResNet50" if p1_r >= p1_c else "ConvNeXt"
-                            win_prob = max(p1_r, p1_c)
-                            st.metric("Winner (sur cette image)", winner, f"{win_prob:.3f}")
-                        elif can_run_convnext:
-                            st.metric("Winner (sur cette image)", "ConvNeXt", f"{p1_c:.3f}")
-                        elif can_run_resnet:
-                            st.metric("Winner (sur cette image)", "ResNet50", f"{p1_r:.3f}")
 
+                # Mode "un seul modèle" : on choisit le meilleur (selon model_scores) ou celui dispo
                 else:
                     preferred = None
                     if best_model is not None and best_model.lower() == "convnext" and can_run_convnext:
