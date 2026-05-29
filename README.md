@@ -36,5 +36,4 @@ streamlit run app.py
 ![OpenCV](https://img.shields.io/badge/OpenCV-4.13-5C3EE8?style=flat-square)
 ![Pandas](https://img.shields.io/badge/Pandas-2.x-150458?style=flat-square)
 ![NumPy](https://img.shields.io/badge/NumPy-1.x-013243?style=flat-square)
-![Altair](https://img.shields.io/badge/Altair-5.x-5276A7?style=flat-square)
 ![Scikit--learn](https://img.shields.io/badge/Scikit--learn-1.x-F7931E?style=flat-square)
